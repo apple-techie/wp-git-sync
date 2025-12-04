@@ -5,6 +5,7 @@ A WordPress plugin that automatically synchronizes your WordPress site with a Gi
 ![WordPress Version](https://img.shields.io/badge/WordPress-6.0%2B-blue)
 ![PHP Version](https://img.shields.io/badge/PHP-7.4%2B-purple)
 ![License](https://img.shields.io/badge/License-GPL%20v2-green)
+[![Sponsor](https://img.shields.io/badge/Sponsor-❤-ea4aaa)](https://github.com/sponsors/apple-techie)
 
 ## ✨ Features
 

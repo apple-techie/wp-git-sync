@@ -1,5 +1,6 @@
 === WP Git Sync ===
 Contributors: appletechie
+Donate link: https://github.com/sponsors/apple-techie
 Tags: git, github, sync, backup, version-control
 Requires at least: 6.0
 Tested up to: 6.9

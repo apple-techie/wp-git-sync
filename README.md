@@ -11,6 +11,7 @@ A WordPress plugin that automatically synchronizes your WordPress site with a Gi
 
 - 🚀 **No Git Required**: Works on any hosting — uses GitHub API when git isn't installed
 - 🔄 **Auto-Sync**: Automatically pushes when plugins/themes change
+- ⚡ **Background Sync**: Handles large codebases (WooCommerce, etc.) without timeouts
 - 📦 **Auto-Create Repos**: Creates private GitHub repositories automatically
 - 🎛️ **Admin Dashboard**: Beautiful UI showing status, commits, and sync controls
 - 🔐 **Secure**: All secrets stored in WordPress database, no env vars needed
@@ -179,9 +180,19 @@ You can customize this in **Settings → Paths to Sync**. One path per line, rel
 
 If you see "API Mode" in the dashboard, that's normal! The plugin detected that git isn't installed and is using GitHub's API instead. Everything works, you just can't pull changes.
 
-### Push seems slow
+### Large Sites / WooCommerce
 
-API mode creates blobs for each file individually. For large sites, the initial push may take a minute or two. Subsequent syncs are faster.
+For sites with many files (WooCommerce stores, etc.), use **Background Sync**:
+
+1. Click "Background Sync (Large Sites)" instead of "Quick Sync"
+2. Files are processed in batches of 50
+3. A progress bar shows real-time status
+4. No timeout issues — takes as long as needed
+5. Smart SHA comparison skips unchanged files
+
+### Quick Sync seems slow
+
+Quick sync is designed for small changes. For large sites, use Background Sync. Subsequent syncs are faster due to SHA comparison (unchanged files are skipped).
 
 ### Files not syncing
 
@@ -271,6 +282,19 @@ Thumbs.db
 ```
 
 ## Changelog
+
+### 2.2.0
+- ⚡ **New**: Background sync for large codebases
+- ⚡ **New**: Batch processing (50 files at a time)
+- ⚡ **New**: Real-time progress indicator with AJAX polling
+- 🚀 **Improved**: Smart SHA comparison skips unchanged files
+- 🚀 **Improved**: Much faster syncs for large sites
+
+### 2.1.0
+- 🔧 **Fixed**: Empty repository sync using Contents API
+- 🔧 **Fixed**: Better error messages
+- ✨ **New**: File scan preview in setup wizard
+- ✨ **New**: Debug output for troubleshooting
 
 ### 2.0.0
 - ✨ **New**: API Mode - works without git installed!

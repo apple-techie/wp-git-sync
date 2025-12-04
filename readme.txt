@@ -5,7 +5,7 @@ Tags: git, github, sync, backup, version-control
 Requires at least: 6.0
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 2.1.0
+Stable tag: 2.2.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -79,6 +79,13 @@ Yes! The plugin creates private repositories by default, and you can sync to any
 
 == Changelog ==
 
+= 2.2.0 =
+* New: Background sync for large codebases (WooCommerce, etc.)
+* New: AJAX polling with real-time progress indicator
+* New: Batch processing (50 files at a time) to avoid timeouts
+* New: Smart SHA comparison to skip unchanged files
+* Improved: Much faster syncs for sites with many files
+
 = 2.1.0 =
 * Fixed: Empty repository sync now works correctly using Contents API
 * Fixed: Better error messages for failed syncs
@@ -105,6 +112,9 @@ Yes! The plugin creates private repositories by default, and you can sync to any
 * Auto-sync on plugin/theme changes
 
 == Upgrade Notice ==
+
+= 2.2.0 =
+Major performance update! Background sync now handles large sites (WooCommerce, etc.) without timing out.
 
 = 2.1.0 =
 Fixes critical issue with syncing to empty/new repositories. Update recommended.

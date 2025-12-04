@@ -63,6 +63,7 @@ class WP_Git_Sync {
         add_action('wp_ajax_wp_git_sync_start_background', [$this, 'ajax_start_background_sync']);
         add_action('wp_ajax_wp_git_sync_status', [$this, 'ajax_get_sync_status']);
         add_action('wp_ajax_wp_git_sync_process_batch', [$this, 'ajax_process_batch']);
+        add_action('wp_ajax_wp_git_sync_cancel_job', [$this, 'ajax_cancel_job']);
         add_action('wp_ajax_nopriv_wp_git_sync_cron_process', [$this, 'cron_process_batch']);
         add_action('wp_git_sync_background_process', [$this, 'background_process_batch']);
     }
@@ -333,6 +334,21 @@ class WP_Git_Sync {
     }
     
     /**
+     * Get the full tree recursively from GitHub
+     */
+    private function get_remote_tree_recursive($tree_sha) {
+        $options = $this->get_options();
+        
+        $result = $this->github_api('GET', "/repos/{$options['github_username']}/{$options['github_repo']}/git/trees/{$tree_sha}?recursive=1");
+        
+        if (isset($result['code']) && $result['code'] === 200) {
+            return $result['body']['tree'] ?? [];
+        }
+        
+        return [];
+    }
+    
+    /**
      * Create a blob for file content
      */
     private function create_blob($content) {
@@ -588,6 +604,26 @@ class WP_Git_Sync {
             if (fnmatch($pattern, $path) || fnmatch($pattern, basename($path))) {
                 return true;
             }
+        }
+        return false;
+    }
+    
+    /**
+     * Check if a path is managed by our sync configuration
+     */
+    private function is_path_managed($path, $sync_paths) {
+        foreach ($sync_paths as $managed_path) {
+            $managed_path = trim($managed_path, '/');
+            if (empty($managed_path)) continue;
+            
+            // Check if the file path starts with the managed path
+            if (strpos($path, $managed_path) === 0) {
+                return true;
+            }
+        }
+        // Also check .gitignore
+        if ($path === '.gitignore') {
+            return true;
         }
         return false;
     }
@@ -1674,8 +1710,40 @@ jQuery(document).ready(function($) {
         btn.prop('disabled', false).html('<span class=\"dashicons dashicons-cloud-upload\" style=\"margin-top: 4px;\"></span> Background Sync (Large Sites)');
         
         $('#wp-git-sync-progress-bar').css('background', '#dc3232').css('width', '100%');
-        $('#wp-git-sync-progress-text').html('<span style=\"color: #dc3232;\">✗ ' + message + '</span>');
+        
+        // Check if it's a stuck job error
+        if (message.indexOf('already in progress') !== -1) {
+            $('#wp-git-sync-progress-text').html('<span style=\"color: #dc3232;\">✗ ' + message + '</span> <button type=\"button\" id=\"wp-git-sync-clear-job\" class=\"button button-small\" style=\"margin-left: 10px;\">Clear & Retry</button>');
+        } else {
+            $('#wp-git-sync-progress-text').html('<span style=\"color: #dc3232;\">✗ ' + message + '</span>');
+        }
     }
+    
+    // Clear stuck job handler
+    $(document).on('click', '#wp-git-sync-clear-job', function() {
+        $(this).prop('disabled', true).text('Clearing...');
+        $.ajax({
+            url: '{$ajax_url}',
+            type: 'POST',
+            data: {
+                action: 'wp_git_sync_cancel_job',
+                nonce: '{$nonce}'
+            },
+            success: function(response) {
+                if (response.success) {
+                    $('#wp-git-sync-progress').hide();
+                    $('#wp-git-sync-progress-bar').css('background', 'linear-gradient(90deg, #0073aa, #00a0d2)').css('width', '0%');
+                    // Auto-start new sync
+                    startBackgroundSync();
+                } else {
+                    alert('Failed to clear job: ' + (response.data ? response.data.message : 'Unknown error'));
+                }
+            },
+            error: function() {
+                alert('Network error clearing job');
+            }
+        });
+    });
 });
 ";
     }
@@ -2170,9 +2238,11 @@ jQuery(document).ready(function($) {
             }
             set_transient(WP_GIT_SYNC_JOB_TRANSIENT . '_remote', $remote_files, HOUR_IN_SECONDS);
             set_transient(WP_GIT_SYNC_JOB_TRANSIENT . '_branch_sha', $branch_sha, HOUR_IN_SECONDS);
+            set_transient(WP_GIT_SYNC_JOB_TRANSIENT . '_base_tree', $base_tree_sha, HOUR_IN_SECONDS);
         } else {
             set_transient(WP_GIT_SYNC_JOB_TRANSIENT . '_remote', [], HOUR_IN_SECONDS);
             set_transient(WP_GIT_SYNC_JOB_TRANSIENT . '_branch_sha', '', HOUR_IN_SECONDS);
+            set_transient(WP_GIT_SYNC_JOB_TRANSIENT . '_base_tree', '', HOUR_IN_SECONDS);
         }
         
         wp_send_json_success([
@@ -2320,30 +2390,26 @@ jQuery(document).ready(function($) {
             $local_sha = sha1('blob ' . strlen($content) . "\0" . $content);
             
             if (isset($remote_files[$rel_path]) && $remote_files[$rel_path]['sha'] === $local_sha) {
-                // File unchanged, reuse SHA
-                $tree_items[] = [
-                    'path' => $rel_path,
-                    'mode' => $remote_files[$rel_path]['mode'],
-                    'type' => 'blob',
-                    'sha' => $local_sha,
-                ];
-            } else {
-                // File changed or new, upload blob
-                $blob_result = $this->create_blob_with_error($content);
-                if (!$blob_result['success']) {
-                    $failed_files[] = $rel_path . ' (' . $blob_result['error'] . ')';
-                    continue;
-                }
-                
-                $tree_items[] = [
-                    'path' => $rel_path,
-                    'mode' => '100644',
-                    'type' => 'blob',
-                    'sha' => $blob_result['sha'],
-                ];
-                $uploaded++;
+                // File unchanged - DON'T add to tree_items, it will be inherited from base_tree
+                // This dramatically reduces tree size for large repos
+                $processed++;
+                continue;
             }
             
+            // File changed or new, upload blob
+            $blob_result = $this->create_blob_with_error($content);
+            if (!$blob_result['success']) {
+                $failed_files[] = $rel_path . ' (' . $blob_result['error'] . ')';
+                continue;
+            }
+            
+            $tree_items[] = [
+                'path' => $rel_path,
+                'mode' => '100644',
+                'type' => 'blob',
+                'sha' => $blob_result['sha'],
+            ];
+            $uploaded++;
             $processed++;
         }
         
@@ -2385,7 +2451,7 @@ jQuery(document).ready(function($) {
     private function finalize_background_sync() {
         $job = get_transient(WP_GIT_SYNC_JOB_TRANSIENT);
         $branch_sha = get_transient(WP_GIT_SYNC_JOB_TRANSIENT . '_branch_sha');
-        $remote_files = get_transient(WP_GIT_SYNC_JOB_TRANSIENT . '_remote');
+        $base_tree_sha = get_transient(WP_GIT_SYNC_JOB_TRANSIENT . '_base_tree');
         $options = $this->get_options();
         
         $job['message'] = 'Creating commit...';
@@ -2393,41 +2459,18 @@ jQuery(document).ready(function($) {
         
         $tree_items = $job['tree_items'];
         
-        // Handle deletions - preserve unmanaged files
-        $sync_paths_raw = $options['sync_paths'];
-        $sync_paths = array_filter(array_map('trim', preg_split('/[\r\n]+/', $sync_paths_raw)));
-        $processed_paths = array_column($tree_items, 'path');
-        $processed_paths = array_flip($processed_paths);
-        
-        foreach ($remote_files as $path => $item) {
-            if (isset($processed_paths[$path])) {
-                continue;
-            }
-            
-            // Check if managed
-            if ($this->is_path_managed($path, $sync_paths)) {
-                continue; // Deleted locally
-            }
-            
-            // Preserve unmanaged files
-            $tree_items[] = [
-                'path' => $path,
-                'mode' => $item['mode'],
-                'type' => 'blob',
-                'sha' => $item['sha'],
-            ];
-        }
-        
+        // If no files changed, nothing to commit
         if (empty($tree_items)) {
             $job['status'] = 'completed';
             $job['message'] = 'No files to sync.';
-            $job['result_message'] = 'No files to sync (repo matches local).';
+            $job['result_message'] = 'No files changed (repo matches local).';
             set_transient(WP_GIT_SYNC_JOB_TRANSIENT, $job, HOUR_IN_SECONDS);
             return ['success' => true, 'status' => 'completed', 'message' => $job['result_message']];
         }
         
-        // Create tree
-        $tree_result = $this->create_tree_with_error(null, $tree_items);
+        // Create tree using base_tree - only changed files are in tree_items
+        // This is MUCH faster and avoids GitHub's limits on large trees
+        $tree_result = $this->create_tree_with_error($base_tree_sha, $tree_items);
         if (!$tree_result['success']) {
             $job['status'] = 'failed';
             $job['error'] = 'Failed to create tree: ' . $tree_result['error'];
@@ -2490,6 +2533,7 @@ jQuery(document).ready(function($) {
         delete_transient(WP_GIT_SYNC_JOB_TRANSIENT . '_files');
         delete_transient(WP_GIT_SYNC_JOB_TRANSIENT . '_remote');
         delete_transient(WP_GIT_SYNC_JOB_TRANSIENT . '_branch_sha');
+        delete_transient(WP_GIT_SYNC_JOB_TRANSIENT . '_base_tree');
         
         return [
             'success' => true,
@@ -2510,6 +2554,21 @@ jQuery(document).ready(function($) {
         delete_transient(WP_GIT_SYNC_JOB_TRANSIENT . '_files');
         delete_transient(WP_GIT_SYNC_JOB_TRANSIENT . '_remote');
         delete_transient(WP_GIT_SYNC_JOB_TRANSIENT . '_branch_sha');
+        delete_transient(WP_GIT_SYNC_JOB_TRANSIENT . '_base_tree');
+    }
+    
+    /**
+     * AJAX handler to cancel/clear a stuck job
+     */
+    public function ajax_cancel_job() {
+        check_ajax_referer('wp_git_sync_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(['message' => 'Unauthorized']);
+        }
+        
+        $this->cancel_sync_job();
+        wp_send_json_success(['message' => 'Sync job cleared. You can start a new sync.']);
     }
     
     public function ajax_test_connection() {

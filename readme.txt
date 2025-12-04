@@ -5,7 +5,7 @@ Tags: git, github, sync, backup, version-control
 Requires at least: 6.0
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 2.2.0
+Stable tag: 2.2.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -78,6 +78,13 @@ Yes! The plugin creates private repositories by default, and you can sync to any
 3. Repository initialization wizard
 
 == Changelog ==
+
+= 2.2.1 =
+* Fixed: Background sync now properly uses base_tree for incremental updates
+* Fixed: Only changed files are included in tree (prevents GitHub API limits)
+* Fixed: Added missing get_remote_tree_recursive() and is_path_managed() methods
+* Fixed: Better error messages with detailed debugging info
+* Fixed: Clear & Retry button for stuck sync jobs
 
 = 2.2.0 =
 * New: Background sync for large codebases (WooCommerce, etc.)

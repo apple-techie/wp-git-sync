@@ -3,7 +3,7 @@
  * Plugin Name:       WP Git Sync
  * Plugin URI:        https://github.com/apple-techie/wp-git-sync
  * Description:       Automatically sync your WordPress site with GitHub. Works with or without Git installed - uses GitHub API as fallback for managed hosting.
- * Version:           2.1.0
+ * Version:           2.2.1
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Apple Techie
@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin version constant.
-define( 'WP_GIT_SYNC_VERSION', '2.2.0' );
+define( 'WP_GIT_SYNC_VERSION', '2.2.1' );
 
 // Background sync constants.
 define( 'WP_GIT_SYNC_BATCH_SIZE', 50 ); // Files per batch.
@@ -872,7 +872,20 @@ class WP_Git_Sync {
             return ['success' => true, 'sha' => $result['body']['sha']];
         }
         
-        $error = $result['body']['message'] ?? ($result['error'] ?? 'Unknown error (code: ' . ($result['code'] ?? 'none') . ')');
+        // Build detailed error message
+        $error = '';
+        if (isset($result['error'])) {
+            $error = $result['error'];
+        } elseif (isset($result['body']['message'])) {
+            $error = $result['body']['message'];
+            // Include additional error details if available
+            if (isset($result['body']['errors'])) {
+                $error .= ' - ' . json_encode($result['body']['errors']);
+            }
+        } else {
+            $error = 'HTTP ' . ($result['code'] ?? 'unknown');
+        }
+        
         return ['success' => false, 'error' => $error];
     }
     
@@ -2470,10 +2483,14 @@ jQuery(document).ready(function($) {
         
         // Create tree using base_tree - only changed files are in tree_items
         // This is MUCH faster and avoids GitHub's limits on large trees
-        $tree_result = $this->create_tree_with_error($base_tree_sha, $tree_items);
+        // If base_tree is empty (new repo), pass null to create fresh tree
+        $tree_result = $this->create_tree_with_error($base_tree_sha ?: null, $tree_items);
         if (!$tree_result['success']) {
             $job['status'] = 'failed';
-            $job['error'] = 'Failed to create tree: ' . $tree_result['error'];
+            $error_detail = $tree_result['error'];
+            // Add debugging info
+            $error_detail .= ' (items: ' . count($tree_items) . ', base_tree: ' . ($base_tree_sha ?: 'none') . ')';
+            $job['error'] = 'Failed to create tree: ' . $error_detail;
             set_transient(WP_GIT_SYNC_JOB_TRANSIENT, $job, HOUR_IN_SECONDS);
             return ['success' => false, 'message' => $job['error']];
         }

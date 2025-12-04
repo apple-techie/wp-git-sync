@@ -1,9 +1,9 @@
 <?php
 /**
  * Plugin Name:       GH Auto Sync
- * Plugin URI:        https://github.com/apple-techie/wp-git-sync
+ * Plugin URI:        https://github.com/apple-techie/gh-auto-sync
  * Description:       Automatically sync your WordPress site with GitHub. Works with or without Git installed - uses GitHub API as fallback for managed hosting. Formerly WP Git Sync.
- * Version:           2.2.4
+ * Version:           2.2.5
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Apple Techie
@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin version constant.
-define( 'WP_GIT_SYNC_VERSION', '2.2.4' );
+define( 'WP_GIT_SYNC_VERSION', '2.2.5' );
 
 // Background sync constants.
 define( 'WP_GIT_SYNC_BATCH_SIZE', 50 ); // Files per batch.
@@ -1250,7 +1250,7 @@ class WP_Git_Sync {
     }
     
     public function render_webhook_section() {
-        $webhook_url = home_url('/wp-json/wp-git-sync/v1/webhook');
+        $webhook_url = home_url('/wp-json/gh-auto-sync/v1/webhook');
         
         echo '<div style="background: #f0f6fc; border: 1px solid #0969da; border-radius: 6px; padding: 16px; margin-bottom: 20px;">';
         echo '<h4 style="margin: 0 0 12px 0; color: #0969da;">📡 Your Webhook URL</h4>';
@@ -1954,7 +1954,7 @@ jQuery(document).ready(function($) {
                     <!-- Webhook Card -->
                     <div class="wp-git-sync-card">
                         <h2>Webhook URL</h2>
-                        <?php $webhook_url = home_url('/wp-json/wp-git-sync/v1/webhook'); ?>
+                        <?php $webhook_url = home_url('/wp-json/gh-auto-sync/v1/webhook'); ?>
                         <p style="margin-bottom: 10px; font-size: 12px; color: #646970;">Add this to GitHub to sync when code is pushed:</p>
                         <div style="display: flex; gap: 8px;">
                             <input type="text" value="<?php echo esc_attr($webhook_url); ?>" readonly style="flex: 1; font-family: monospace; font-size: 11px; padding: 6px 8px;" id="webhook-url-dashboard">
@@ -2635,7 +2635,7 @@ WP_Git_Sync::get_instance();
 
 // Register REST API endpoint for webhook
 add_action('rest_api_init', function() {
-    register_rest_route('wp-git-sync/v1', '/webhook', [
+    register_rest_route('gh-auto-sync/v1', '/webhook', [
         'methods' => 'POST',
         'callback' => 'wp_git_sync_handle_webhook',
         'permission_callback' => '__return_true',

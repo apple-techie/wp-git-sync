@@ -322,6 +322,42 @@ class WP_Git_Sync {
     }
     
     /**
+     * Get full recursive tree from GitHub
+     */
+    private function get_remote_tree_recursive($tree_sha) {
+        $options = $this->get_options();
+        // Use recursive=1 to get all files
+        $result = $this->github_api('GET', "/repos/{$options['github_username']}/{$options['github_repo']}/git/trees/{$tree_sha}?recursive=1");
+        
+        if (isset($result['code']) && $result['code'] === 200) {
+            return $result['body']['tree'] ?? [];
+        }
+        
+        return [];
+    }
+
+    /**
+     * Check if a path is managed by our sync configuration
+     */
+    private function is_path_managed($path, $sync_paths) {
+        foreach ($sync_paths as $sync_path) {
+            $sync_path = trim($sync_path, '/');
+            if (empty($sync_path)) continue;
+            
+            // Exact match (file or folder root)
+            if ($path === $sync_path) {
+                return true;
+            }
+            
+            // Child of folder
+            if (strpos($path, $sync_path . '/') === 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+    
+    /**
      * Create a blob for file content
      */
     private function create_blob($content) {
@@ -709,18 +745,40 @@ class WP_Git_Sync {
     }
     
     /**
-     * Sync files to existing repository using Git Data API (faster for bulk operations)
+     * Sync files to existing repository using Git Data API
+     * Uses fetch-merge-replace strategy to handle deletions and optimizations
      */
     private function sync_to_existing_repo($files, $message, $branch_sha) {
         $options = $this->get_options();
         
-        $base_tree = $this->get_tree_sha($branch_sha);
+        // 1. Get current remote tree (recursive) to handle deletions and optimizations
+        $base_tree_sha = $this->get_tree_sha($branch_sha);
+        $remote_tree_raw = $this->get_remote_tree_recursive($base_tree_sha);
         
-        // Build tree items
+        // Create a map of remote paths to their data for quick lookup
+        $remote_files = [];
+        foreach ($remote_tree_raw as $item) {
+            if ($item['type'] === 'blob') {
+                $remote_files[$item['path']] = $item;
+            }
+        }
+        
+        // Parse sync paths to check what is managed
+        $sync_paths_raw = $options['sync_paths'];
+        $sync_paths = array_filter(array_map('trim', preg_split('/[\r\n]+/', $sync_paths_raw)));
+        // Always include .gitignore in managed paths if it exists locally
+        if (isset($files['.gitignore'])) {
+             $sync_paths[] = '.gitignore';
+        }
+        
+        // 2. Build tree items
         $tree_items = [];
+        $processed_paths = [];
         $file_count = 0;
+        $blob_count = 0; // Count actual API uploads
         $failed_files = [];
         
+        // 2a. Process Local Files (Add/Update)
         foreach ($files as $rel_path => $full_path) {
             $content = @file_get_contents($full_path);
             if ($content === false) {
@@ -728,28 +786,69 @@ class WP_Git_Sync {
                 continue;
             }
             
-            // Skip empty files
+            // Skip empty files (same as before)
             if (strlen($content) === 0) {
                 continue;
             }
             
-            $blob_result = $this->create_blob_with_error($content);
-            if (!$blob_result['success']) {
-                $failed_files[] = $rel_path . ' (' . $blob_result['error'] . ')';
+            // Optimization: Calculate Git SHA to see if we can skip upload
+            $local_sha = sha1('blob ' . strlen($content) . "\0" . $content);
+            
+            if (isset($remote_files[$rel_path]) && $remote_files[$rel_path]['sha'] === $local_sha) {
+                // File hasn't changed! Reuse SHA.
+                $tree_items[] = [
+                    'path' => $rel_path,
+                    'mode' => $remote_files[$rel_path]['mode'],
+                    'type' => 'blob',
+                    'sha' => $local_sha,
+                ];
+            } else {
+                // File changed or new -> Upload Blob
+                $blob_result = $this->create_blob_with_error($content);
+                if (!$blob_result['success']) {
+                    $failed_files[] = $rel_path . ' (' . $blob_result['error'] . ')';
+                    continue;
+                }
+                
+                $tree_items[] = [
+                    'path' => $rel_path,
+                    'mode' => '100644',
+                    'type' => 'blob',
+                    'sha' => $blob_result['sha'],
+                ];
+                $blob_count++;
+            }
+            
+            $processed_paths[$rel_path] = true;
+            $file_count++;
+        }
+        
+        // 2b. Process Remote Files (Preserve unmanaged, Drop managed-but-missing)
+        foreach ($remote_files as $path => $item) {
+            // If we already processed this path (it was local), skip
+            if (isset($processed_paths[$path])) {
                 continue;
             }
             
-            $tree_items[] = [
-                'path' => $rel_path,
-                'mode' => '100644',
-                'type' => 'blob',
-                'sha' => $blob_result['sha'],
-            ];
-            $file_count++;
-            
-            if ($file_count >= 500) {
-                break;
+            // Check if this path is managed by our sync config
+            if ($this->is_path_managed($path, $sync_paths)) {
+                // It IS managed, but was NOT in local $files.
+                // This means it was DELETED locally.
+                // We do NOT add it to tree_items, effectively deleting it.
+                continue;
             }
+            
+            // It is NOT managed (e.g. README.md). Preserve it.
+            $tree_items[] = [
+                'path' => $path,
+                'mode' => $item['mode'],
+                'type' => 'blob',
+                'sha' => $item['sha'],
+            ];
+        }
+        
+        if (empty($tree_items) && empty($failed_files)) {
+             return ['success' => true, 'message' => 'No files to sync (repo matches local).', 'files_synced' => 0];
         }
         
         if (empty($tree_items)) {
@@ -757,8 +856,8 @@ class WP_Git_Sync {
             return ['success' => false, 'message' => 'No files could be processed.' . $error_details];
         }
         
-        // Create tree
-        $tree_result = $this->create_tree_with_error($base_tree, $tree_items);
+        // Create tree (Pass NULL as base_tree to define exact state)
+        $tree_result = $this->create_tree_with_error(null, $tree_items);
         if (!$tree_result['success']) {
             return ['success' => false, 'message' => 'Failed to create tree: ' . $tree_result['error']];
         }
@@ -775,7 +874,7 @@ class WP_Git_Sync {
             return ['success' => false, 'message' => 'Failed to update branch: ' . $ref_result['error']];
         }
         
-        $result_message = "Synced {$file_count} files to GitHub.";
+        $result_message = "Synced {$file_count} files to GitHub ({$blob_count} uploaded).";
         if (!empty($failed_files)) {
             $result_message .= ' (' . count($failed_files) . ' files skipped)';
         }
@@ -785,6 +884,7 @@ class WP_Git_Sync {
             'message' => $result_message,
             'commit' => substr($commit_result['sha'], 0, 7),
             'files_synced' => $file_count,
+            'blobs_uploaded' => $blob_count,
             'files_skipped' => count($failed_files),
         ];
     }

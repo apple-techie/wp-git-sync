@@ -1,0 +1,5 @@
+
+# AI/IDE tooling
+.claude-flow/
+.swarm/
+.cursor/

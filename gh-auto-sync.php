@@ -3,14 +3,14 @@
  * Plugin Name:       GH Auto Sync
  * Plugin URI:        https://github.com/apple-techie/wp-git-sync
  * Description:       Automatically sync your WordPress site with GitHub. Works with or without Git installed - uses GitHub API as fallback for managed hosting. Formerly WP Git Sync.
- * Version:           2.2.2
+ * Version:           2.2.3
  * Requires at least: 6.0
  * Requires PHP:      7.4
  * Author:            Apple Techie
  * Author URI:        https://github.com/apple-techie
  * License:           GPL v2 or later
  * License URI:       https://www.gnu.org/licenses/gpl-2.0.html
- * Text Domain:       wp-git-sync
+ * Text Domain:       gh-auto-sync
  *
  * @package WP_Git_Sync
  */
@@ -20,7 +20,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 // Plugin version constant.
-define( 'WP_GIT_SYNC_VERSION', '2.2.2' );
+define( 'WP_GIT_SYNC_VERSION', '2.2.3' );
 
 // Background sync constants.
 define( 'WP_GIT_SYNC_BATCH_SIZE', 50 ); // Files per batch.

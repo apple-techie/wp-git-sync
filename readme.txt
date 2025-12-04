@@ -5,7 +5,7 @@ Tags: git, github, sync, backup, version-control
 Requires at least: 6.0
 Tested up to: 6.9
 Requires PHP: 7.4
-Stable tag: 2.2.2
+Stable tag: 2.2.3
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -78,6 +78,10 @@ Yes! The plugin creates private repositories by default, and you can sync to any
 3. Repository initialization wizard
 
 == Changelog ==
+
+= 2.2.3 =
+* Fixed: Text domain changed from "wp-git-sync" to "gh-auto-sync" to match plugin slug
+* Fixed: Main plugin file renamed to gh-auto-sync.php
 
 = 2.2.2 =
 * Renamed: Plugin renamed from "WP Git Sync" to "GH Auto Sync" for WordPress.org compliance
